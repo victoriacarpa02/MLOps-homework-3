@@ -2,6 +2,12 @@ import pandas as pd
 from prefect import flow, task
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.linear_model import LinearRegression
+import pickle
+from pathlib import Path
+
+import mlflow
+import mlflow.sklearn
+from mlflow.models import Model
 
 
 @task
@@ -51,6 +57,51 @@ def train_model(df: pd.DataFrame):
     return dv, model
 
 
+@task
+def save_model(dv, model, data_path: str):
+    mlflow.set_tracking_uri("http://127.0.0.1:5001")
+    mlflow.set_experiment("yellow-taxi-training")
+
+    with mlflow.start_run() as run:
+        mlflow.log_params(model.get_params())
+        mlflow.log_param("data_path", data_path)
+        mlflow.log_param("features", "PULocationID,DOLocationID")
+        mlflow.log_metric("intercept", float(model.intercept_))
+
+        output_dir = Path("output")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        dv_path = output_dir / "dv.pkl"
+        with dv_path.open("wb") as file:
+            pickle.dump(dv, file)
+
+        mlflow.log_artifact(
+            str(dv_path),
+            artifact_path="preprocessor",
+        )
+
+        model_info = mlflow.sklearn.log_model(
+            sk_model=model,
+            name="model",
+            serialization_format="cloudpickle",
+        )
+
+        model_metadata = Model.load(model_info.model_uri)
+
+        registered_model = mlflow.register_model(
+            model_uri=model_info.model_uri,
+            name="nyc-yellow-taxi-duration",
+        )
+
+        print(f"MLflow run ID: {run.info.run_id}")
+        print(f"Model URI: {model_info.model_uri}")
+        print(f"Q6 - model_size_bytes: {model_metadata.model_size_bytes}")
+        print(f"Registered model: {registered_model.name}")
+        print(f"Model version: {registered_model.version}")
+
+        return model_info.model_uri
+
+
 @flow(name="nyc-taxi-training", log_prints=True)
 def training_pipeline(
     data_path: str = "data/yellow_tripdata_2023-03.parquet",
@@ -58,8 +109,9 @@ def training_pipeline(
     df = load_data(data_path)
     df = prepare_data(df)
     dv, model = train_model(df)
+    model_uri = save_model(dv, model, data_path)
 
-    return dv, model
+    return model_uri
 
 
 if __name__ == "__main__":

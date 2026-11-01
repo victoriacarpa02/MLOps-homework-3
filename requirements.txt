@@ -2,3 +2,4 @@ prefect==3.9.1
 pandas
 pyarrow
 scikit-learn
+mlflow==3.17.0
