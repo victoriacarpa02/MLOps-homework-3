@@ -1,3 +1,4 @@
 prefect==3.9.1
 pandas
 pyarrow
+scikit-learn

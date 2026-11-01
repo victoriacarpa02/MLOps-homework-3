@@ -1,5 +1,7 @@
 import pandas as pd
 from prefect import flow, task
+from sklearn.feature_extraction import DictVectorizer
+from sklearn.linear_model import LinearRegression
 
 
 @task
@@ -32,14 +34,32 @@ def prepare_data(df: pd.DataFrame):
     return df
 
 
+@task
+def train_model(df: pd.DataFrame):
+    categorical = ["PULocationID", "DOLocationID"]
+    train_dicts = df[categorical].to_dict(orient="records")
+
+    dv = DictVectorizer()
+    X_train = dv.fit_transform(train_dicts)
+    y_train = df["duration"].to_numpy()
+
+    model = LinearRegression()
+    model.fit(X_train, y_train)
+
+    print(f"Q5 - Model intercept: {model.intercept_:.6f}")
+
+    return dv, model
+
+
 @flow(name="nyc-taxi-training", log_prints=True)
 def training_pipeline(
     data_path: str = "data/yellow_tripdata_2023-03.parquet",
 ):
     df = load_data(data_path)
     df = prepare_data(df)
+    dv, model = train_model(df)
 
-    return len(df)
+    return dv, model
 
 
 if __name__ == "__main__":
